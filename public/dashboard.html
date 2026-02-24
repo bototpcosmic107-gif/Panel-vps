@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel VPS - Control Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #e0e0e0;
+        }
+
+        .glassmorphism {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+        }
+
+        .console-container {
+            background: #0a0e27;
+            border: 1px solid #1a1f3a;
+            border-radius: 10px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+            color: #00ff88;
+            scroll-behavior: smooth;
+        }
+
+        .console-line {
+            padding: 2px 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .console-line.error {
+            color: #ff4444;
+        }
+
+        .console-line.success {
+            color: #44ff44;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-online {
+            background: rgba(68, 255, 68, 0.2);
+            color: #44ff44;
+            border: 1px solid #44ff44;
+        }
+
+        .status-offline {
+            background: rgba(255, 68, 68, 0.2);
+            color: #ff4444;
+            border: 1px solid #ff4444;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-danger:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(245, 87, 108, 0.3);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #44ff44, #00aa00);
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-success:hover {
+            transform: scale(1.05);
+        }
+
+        .stat-card {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid rgba(102, 126, 234, 0.3);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #999;
+            margin-top: 5px;
+        }
+
+        .script-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .script-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(102, 126, 234, 0.4);
+        }
+
+        .file-upload {
+            border: 2px dashed #667eea;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .file-upload:hover {
+            background: rgba(102, 126, 234, 0.1);
+            border-color: #764ba2;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e0e0e0;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab-btn.active {
+            background: rgba(102, 126, 234, 0.2);
+            border-bottom-color: #667eea;
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr !important; }
+            .console-container { max-height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="min-h-screen p-4 md:p-8">
+        <!-- Header -->
+        <div class="mb-8 text-center">
+            <h1 class="text-4xl md:text-5xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+                🎛️ Panel VPS
+            </h1>
+            <p class="text-gray-400">High-Performance Control Panel for Script Execution & Management</p>
+        </div>
+
+        <!-- System Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="stat-card">
+                <div class="stat-value" id="cpuUsage">0%</div>
+                <div class="stat-label">CPU Usage</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="memUsage">0%</div>
+                <div class="stat-label">Memory Usage</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="uptime">0s</div>
+                <div class="stat-label">Uptime</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="processCount">0</div>
+                <div class="stat-label">Running Scripts</div>
+            </div>
+        </div>
+
+        <!-- Main Container -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left Column: Scripts -->
+            <div class="lg:col-span-2">
+                <div class="glassmorphism p-6 mb-6">
+                    <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                        <span class="text-blue-400">▶</span> Scripts
+                    </h2>
+                    
+                    <!-- Tabs -->
+                    <div class="flex gap-2 mb-4 border-b border-rgba(102, 126, 234, 0.2)">
+                        <button class="tab-btn active" onclick="switchTab('scripts')">My Scripts</button>
+                        <button class="tab-btn" onclick="switchTab('upload')">Upload</button>
+                    </div>
+
+                    <!-- Scripts List -->
+                    <div id="scripts" class="tab-content active">
+                        <div id="scriptsList" class="space-y-2"></div>
+                        <div id="noScripts" class="text-center text-gray-500 py-8">
+                            No scripts uploaded yet. Upload a .js or .py file to get started.
+                        </div>
+                    </div>
+
+                    <!-- Upload Section -->
+                    <div id="upload" class="tab-content">
+                        <div class="file-upload" id="dropZone">
+                            <div class="text-lg mb-2">📁 Drop files here or click to upload</div>
+                            <div class="text-sm text-gray-500">Supports: .js (Node.js) and .py (Python3)</div>
+                            <input type="file" id="fileInput" accept=".js,.py" style="display: none;">
+                        </div>
+                        <div id="uploadStatus" class="mt-4"></div>
+                    </div>
+                </div>
+
+                <!-- Console Output -->
+                <div class="glassmorphism p-6">
+                    <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                        <span class="text-green-400">▶</span> Live Console
+                    </h2>
+                    <div class="console-container" id="console">
+                        <div class="console-line" style="color: #888;">[Waiting for output...]</div>
+                    </div>
+                    <div class="mt-4 flex gap-2">
+                        <button class="btn-primary" onclick="clearConsole()">Clear</button>
+                        <button class="btn-primary" onclick="downloadLogs()">📥 Download Logs</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Controls & Monitoring -->
+            <div class="lg:col-span-1">
+                <!-- Script Controls -->
+                <div class="glassmorphism p-6 mb-6">
+                    <h2 class="text-2xl font-bold mb-4">⚙️ Controls</h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm mb-2 text-gray-400">Select Script</label>
+                            <select id="scriptSelect" class="w-full p-2 rounded-6 bg-rgba(255,255,255,0.05) border border-rgba(102,126,234,0.3) text-white">
+                                <option>Choose a script...</option>
+                            </select>
+                        </div>
+                        <button class="btn-success w-full" onclick="startScript()">▶️ Start</button>
+                        <button class="btn-danger w-full" onclick="stopScript()">⏹️ Stop</button>
+                        <button class="btn-primary w-full" onclick="restartScript()">🔄 Restart</button>
+                    </div>
+                </div>
+
+                <!-- Status Monitor -->
+                <div class="glassmorphism p-6 mb-6">
+                    <h2 class="text-2xl font-bold mb-4">📊 Status</h2>
+                    <div id="statusMonitor" class="space-y-2">
+                        <div class="text-center text-gray-500 py-4">
+                            No active processes
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Info -->
+                <div class="glassmorphism p-6">
+                    <h2 class="text-xl font-bold mb-4">ℹ️ Info</h2>
+                    <div class="space-y-2 text-sm">
+                        <div>
+                            <span class="text-gray-400">Status:</span>
+                            <span id="serverStatus" class="status-badge status-online pulse ml-2">Online</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">Connection:</span>
+                            <span id="socketStatus" class="text-red-400 ml-2">Connecting...</span>
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-rgba(102,126,234,0.2)">
+                            <p class="text-xs text-gray-500">Version: 1.0.0</p>
+                            <p class="text-xs text-gray-500">Last Update: 2026-02-24</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let consoleLogs = [];
+        const MAX_LOGS = 500;
+
+        // Socket connection events
+        socket.on('connect', () => {
+            updateSocketStatus('Connected', true);
+            loadScripts();
+            requestStatus();
+        });
+
+        socket.on('disconnect', () => {
+            updateSocketStatus('Disconnected', false);
+        });
+
+        socket.on('scriptLog', (data) => {
+            addConsoleLog(data.log, data.type);
+            updateScriptStatus(data.script);
+        });
+
+        socket.on('processStatus', (data) => {
+            updateScriptStatus(data.script);
+            if (data.status === 'running') {
+                addConsoleLog(`[${data.script}] Process started (PID: ${data.pid})`, 'success');
+            } else {
+                addConsoleLog(`[${data.script}] Process stopped (Exit Code: ${data.code})`, 'info');
+            }
+        });
+
+        socket.on('error', (data) => {
+            addConsoleLog(`ERROR: ${data.message}`, 'error');
+        });
+
+        socket.on('success', (data) => {
+            addConsoleLog(`SUCCESS: ${data.message}`, 'success');
+        });
+
+        // Load scripts from server
+        function loadScripts() {
+            fetch('/api/scripts')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.scripts.length > 0) {
+                        document.getElementById('noScripts').style.display = 'none';
+                        document.getElementById('scriptsList').innerHTML = data.scripts.map(script => `
+                            <div class=
+                            "script-item">
+                                <div>
+                                    <span class="font-mono">${script}</span>
+                                    <span class="status-badge status-offline ml-2" id="status-${script}">Offline</span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button class="btn-success" onclick="quickStart('${script}')">▶️</button>
+                                    <button class="btn-danger" onclick="quickStop('${script}')">⏹️</button>
+                                    <button class="btn-danger" onclick="deleteFile('${script}')">🗑️</button>
+                                </div>
+                            </div>
+                        `).join('');
+                        
+                        document.getElementById('scriptSelect').innerHTML = '<option>Choose a script...</option>' + 
+                            data.scripts.map(s => `<option value="${s}">${s}</option>`).join('');
+                    }
+                })
+                .catch(error => console.error('Error loading scripts:', error));
+        }
+
+        // Request system status
+        function requestStatus() {
+            fetch('/api/status')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('cpuUsage').textContent = data.cpu + '%';
+                        document.getElementById('memUsage').textContent = data.memory + '%';
+                        document.getElementById('uptime').textContent = formatUptime(data.uptime);
+                        document.getElementById('processCount').textContent = data.processes;
+                    }
+                })
+                .catch(error => console.error('Error fetching status:', error));
+        }
+
+        // Script Controls
+        function startScript() {
+            const script = document.getElementById('scriptSelect').value;
+            if (!script || script === 'Choose a script...') {
+                addConsoleLog('Please select a script first', 'error');
+                return;
+            }
+            socket.emit('startScript', script);
+        }
+
+        function stopScript() {
+            const script = document.getElementById('scriptSelect').value;
+            if (!script || script === 'Choose a script...') {
+                addConsoleLog('Please select a script first', 'error');
+                return;
+            }
+            socket.emit('stopScript', script);
+        }
+
+        function restartScript() {
+            const script = document.getElementById('scriptSelect').value;
+            if (!script || script === 'Choose a script...') {
+                addConsoleLog('Please select a script first', 'error');
+                return;
+            }
+            socket.emit('restartScript', script);
+        }
+
+        function quickStart(script) {
+            document.getElementById('scriptSelect').value = script;
+            startScript();
+        }
+
+        function quickStop(script) {
+            socket.emit('stopScript', script);
+        }
+
+        // File Management
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.style.background = 'rgba(102, 126, 234, 0.1)';
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.style.background = '';
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.style.background = '';
+            if (e.dataTransfer.files.length > 0) {
+                uploadFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                uploadFile(e.target.files[0]);
+            }
+        });
+
+        function uploadFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const content = e.target.result;
+                fetch('/api/upload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        content: content,
+                        type: file.name.endsWith('.json') ? 'database' : (file.name.match(/\.(jpg|png|gif)$/i) ? 'assets' : 'scripts')
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        addConsoleLog(`File uploaded: ${file.name}`, 'success');
+                        loadScripts();
+                    } else {
+                        addConsoleLog(`Upload failed: ${data.error}`, 'error');
+                    }
+                })
+                .catch(error => addConsoleLog(`Upload error: ${error.message}`, 'error'));
+            };
+            reader.readAsText(file);
+        }
+
+        function deleteFile(filename) {
+            if (confirm(`Delete ${filename}?`)) {
+                fetch(`/api/file/${filename}`, { method: 'DELETE' })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            addConsoleLog(`File deleted: ${filename}`, 'success');
+                            loadScripts();
+                        } else {
+                            addConsoleLog(`Delete failed: ${data.error}`, 'error');
+                        }
+                    });
+            }
+        }
+
+        // Console Functions
+        function addConsoleLog(log, type = 'info') {
+            const console = document.getElementById('console');
+            const line = document.createElement('div');
+            line.className = 'console-line';
+            if (type === 'error') line.classList.add('error');
+            if (type === 'success') line.classList.add('success');
+            
+            line.textContent = log;
+            console.appendChild(line);
+            consoleLogs.push(log);
+            
+            if (consoleLogs.length > MAX_LOGS) {
+                consoleLogs.shift();
+                console.removeChild(console.firstChild);
+            }
+            
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('console').innerHTML = '<div class="console-line" style="color: #888;">[Console cleared]</div>';
+            consoleLogs = [];
+        }
+
+        function downloadLogs() {
+            const content = consoleLogs.join('\n');
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `logs-${new Date().toISOString().slice(0, 10)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // UI Functions
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function updateSocketStatus(status, connected) {
+            document.getElementById('socketStatus').textContent = status;
+            document.getElementById('socketStatus').style.color = connected ? '#44ff44' : '#ff4444';
+        }
+
+        function updateScriptStatus(scriptName) {
+            const badge = document.getElementById(`status-${scriptName}`);
+            if (badge) {
+                badge.textContent = 'Online';
+                badge.classList.remove('status-offline');
+                badge.classList.add('status-online');
+            }
+        }
+
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            return `${hours}h ${minutes}m ${secs}s`;
+        }
+
+        // Auto-refresh status
+        setInterval(requestStatus, 3000);
+        setInterval(() => socket.emit('getStatus'), 5000);
+    </script>
+</body>
+</html>
