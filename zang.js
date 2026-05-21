@@ -107,46 +107,48 @@ const menuText = (pushName="") => `
 𝑺𝑼𝑮𝑬𝑵𝑮 𝑹𝑨𝑾𝑼𝑯 𝑲𝑨𝑵𝑮 𝑴𝑨𝑺 ${pushName}
 ╔───𖣂 𝙄𝙉𝙁𝙊𝙍𝙈𝘼𝙏𝙄𝙊𝙉𖣂───╗
 ├ ⌬ 𝙱𝚘𝚝 𝙽𝚊𝚖𝚎      : 𝑩𝑶𝑻 𝑩𝑳𝑨𝑺𝑻
-├ ⌬ 𝚅𝚎𝚛𝚜𝚒𝚘𝚗       : 0.5
+├ ⌬ 𝚅𝚎𝚛𝚜𝚒𝚘𝚗       : 19.22
 ├ ⌬ 𝙳𝚎𝚟𝚎𝚕𝚘𝚙𝚎𝚛    : 𝑽𝑨𝑵𝑺𝑺 X バンズ
 ├ ⌬ 𝙾𝚆𝙽𝙴𝚁          : ${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}
-├ ⌬ 𝚃𝚎𝚕𝚎𝚐𝚛𝚊𝚖     : t.me/XIXI8778
+├ ⌬ 𝚃𝚎𝚕𝚎𝚐𝚛𝚊𝚖     : 𝗨𝗗𝗔𝗛 𝗣𝗘𝗡𝗦𝗜
 ├ ⌬ 𝚃𝚢𝚙𝚎           : 𝙼𝙳
 ╚──────────────⪩
 
 ╔─── 𝙶𝙴𝙽𝙴𝚁𝘼𝙻 ───╗
-↝ zang              : tampilkan menu
-↝ sh                : simpan foto sekali lihat
-↝ brat <teks>       : stiker teks (wrap ke bawah)
-↝ bratvid <teks>    : stiker animasi mengetik
-↝ hd                : foto/video → HD
-↝ mp4 <link>        : download TikTok video
-↝ mp3 <link>        : download TikTok audio
-↝ c <nomer>         : cek nomer WA & operator
-↝ pay               : info pembayaran
-↝ 600*2 / 600x2     : kalkulator harga
-╚──────────────────╝
+↝ zang              
+↝ ft                
+↝ tt                
+↝ sh               
+↝ brat <teks>       
+↝ bratvid <teks>    
+↝ hd                
+↝ mp4 <link>        
+↝ mp3 <link>        
+↝ c <nomer>         
+↝ pay               
+↝ 600*2 / 600x2    
+╚─────────────╝
 
 ╔─── 𝘼𝘿𝙈𝙄𝙉 𝙊𝙉𝙇𝙔 ───╗
-↝ online / offline  : status bot
-↝ self / public     : mode bot
-↝ qris <nominal>    : buat QRIS pembayaran
-↝ setwelcome <teks> : atur welcome grup (di grup)
-↝ cekwelcome        : lihat welcome grup ini
-↝ delwelcome        : hapus welcome grup ini
-↝ welcome on/off    : toggle fitur welcome
-↝ antilink on/off   : filter link di grup
-↝ reaction on/off   : reaction nomer WA
-↝ send on/off       : konfirmasi payment foto
-↝ blacklist         : reply chat → blacklist user
-↝ unblacklist       : reply chat → hapus blacklist
-↝ blacklistgc <link>: blacklist grup dari link
-↝ cekbl             : lihat daftar blacklist
-↝ kick              : reply chat → kick dari grup
-↝ autojoin <link>   : bot join grup/channel
-↝ jadibot <62xxx>   : buat bot calone
-↝ stopbot <62xxx>   : hentikan bot calone
-╚──────────────────╝
+↝ online / offline  
+↝ self / public     
+↝ qris <nominal>    
+↝ setwelcome <teks> 
+↝ cekwelcome        
+↝ delwelcome        
+↝ welcome on/off    
+↝ antilink on/off  
+↝ reaction on/off   
+↝ send on/off      
+↝ blacklist         
+↝ unblacklist       
+↝ blacklistgc 
+↝ cekbl            
+↝ kick              
+↝ autojoin <link>  
+↝ jadibot <62xxx>   
+↝ stopbot <62xxx>   
+╚───────────────╝
 `.trim();
 
 // ════════════════════════════════════════════════════════════
@@ -718,6 +720,88 @@ async function handleMessage(sock, msg) {
     }
   }
 
+  // ── FT — Foto/Video → Stiker ──────────────────────────
+  if (lower === "ft") {
+    // Ambil dari quoted atau pesan itu sendiri
+    const imgMsg =
+      quotedMsg?.imageMessage || quotedMsg?.videoMessage ||
+      realMsg.imageMessage    || realMsg.videoMessage;
+    if (!imgMsg) return reply("❌ Reply atau kirim foto/video bersama teks *ft*!");
+    await react("⏳");
+    try {
+      const sharp = (await import("sharp")).default;
+      // Download media
+      const targetMsg = (quotedMsg?.imageMessage || quotedMsg?.videoMessage)
+        ? { key:{ ...msg.key, id:ctxInfo?.stanzaId }, message:quotedMsg }
+        : msg;
+      const buffer = await downloadMediaMessage(targetMsg, "buffer", {}, { logger:_pino, reuploadRequest:sock.updateMediaMessage });
+      const isVideo = !!(quotedMsg?.videoMessage || realMsg.videoMessage);
+
+      let stickerBuf;
+      if (isVideo) {
+        // Video → webp animasi via ffmpeg
+        const inFile  = tmpFile("mp4");
+        const outFile = tmpFile("webp");
+        fs.writeFileSync(inFile, buffer);
+        await new Promise((res,rej) =>
+          exec(
+            `ffmpeg -y -i "${inFile}" -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2,fps=15,setsar=1" -vcodec libwebp -lossless 0 -compression_level 6 -q:v 50 -loop 0 -preset default -an -vsync 0 -t 8 "${outFile}"`,
+            (err) => err ? rej(err) : res()
+          )
+        );
+        stickerBuf = fs.readFileSync(outFile);
+        fs.removeSync(inFile); fs.removeSync(outFile);
+      } else {
+        // Foto → webp statis 512x512 dengan padding transparan
+        stickerBuf = await sharp(buffer)
+          .resize(512, 512, { fit:"contain", background:{ r:0,g:0,b:0,alpha:0 } })
+          .webp({ quality:90 })
+          .toBuffer();
+      }
+
+      await sock.sendMessage(jid, { sticker: stickerBuf }, { quoted:msg });
+      await react("✅");
+    } catch(e) { await react("❌"); await replyFast("❌ Gagal buat stiker: " + e.message); }
+    return;
+  }
+
+  // ── TT — Stiker → Foto ────────────────────────────────
+  if (lower === "tt") {
+    const stickerMsg = quotedMsg?.stickerMessage || realMsg.stickerMessage;
+    if (!stickerMsg) return reply("❌ Reply atau kirim stiker bersama teks *tt*!");
+    await react("⏳");
+    try {
+      const sharp = (await import("sharp")).default;
+      const targetMsg = quotedMsg?.stickerMessage
+        ? { key:{ ...msg.key, id:ctxInfo?.stanzaId }, message:quotedMsg }
+        : msg;
+      const buffer = await downloadMediaMessage(targetMsg, "buffer", {}, { logger:_pino, reuploadRequest:sock.updateMediaMessage });
+
+      const isAnimated = stickerMsg.isAnimated;
+      if (isAnimated) {
+        // Animasi webp → gif → ambil frame pertama sebagai jpg
+        const inFile  = tmpFile("webp");
+        const outFile = tmpFile("jpg");
+        fs.writeFileSync(inFile, buffer);
+        await new Promise((res,rej) =>
+          exec(
+            `ffmpeg -y -i "${inFile}" -vframes 1 "${outFile}"`,
+            (err) => err ? rej(err) : res()
+          )
+        );
+        const jpgBuf = fs.readFileSync(outFile);
+        fs.removeSync(inFile); fs.removeSync(outFile);
+        await sock.sendMessage(jid, { image:jpgBuf, caption:"✅ Stiker → Foto" }, { quoted:msg });
+      } else {
+        // Statis webp → jpg
+        const jpgBuf = await sharp(buffer).jpeg({ quality:95 }).toBuffer();
+        await sock.sendMessage(jid, { image:jpgBuf, caption:"✅ Stiker → Foto" }, { quoted:msg });
+      }
+      await react("✅");
+    } catch(e) { await react("❌"); await replyFast("❌ Gagal konversi: " + e.message); }
+    return;
+  }
+
   // ── SH ────────────────────────────────────────────────
   if (lower==="sh") {
     if (!quotedMsg) return reply("❌ Reply dulu foto/video sekali lihat!");
@@ -967,7 +1051,7 @@ async function startMainBot(phoneNumber) {
         await sleep(2000);
         const adminJid=`${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}@s.whatsapp.net`;
         const imgPath =path.join(__dirname,"zang.jpg");
-        const notifText=`╔───── BOT CONNECT ─────╗\n├ ✅ *Bot berhasil terhubung!*\n├ 📅 Waktu  : ${new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}\n├ 📱 BotNum : ${phoneNumber}\n├ 🔴 Status : OFFLINE (kirim *online*)\n╚───────────────────────╝`;
+        const notifText=`╔───── BOT CONNECT ─────╗\n├ ✅ ＤＯＮＥ Ｓｕｃｃｅｓｓ Ｃｏｎｎｅｃｔ\n├ 📅 ＴＩＭＥ  : ${new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}\n├ 📱 𝘕𝘶𝘮𝘣𝘦𝘳𝘴 𝘣𝘰𝘵 : ${phoneNumber}\n├ 🔴 Status : OFFLINE\n╚───────────────────────╝`;
         if(fs.existsSync(imgPath)) await sock.sendMessage(adminJid,{image:fs.readFileSync(imgPath),caption:notifText,mimetype:"image/jpeg"});
         else await sock.sendMessage(adminJid,{text:notifText});
       } catch(_){}
@@ -990,11 +1074,11 @@ async function startMainBot(phoneNumber) {
 // ════════════════════════════════════════════════════════════
 _rawOut(`
   ╔───𖣂 𝙄𝙉𝙁𝙊𝙍𝙈𝘼𝙏𝙄𝙊𝙉 𖣂───╗
-  ├ ⌬ 𝗕𝗼𝘁 𝗡𝗮𝗺𝗲 : 𝑩𝑶𝑻 𝑩𝑳𝑨𝑺𝑻
-  ├ ⌬ 𝗩𝗲𝗿𝘀𝗶𝗼𝗻    : 0.5
+  ├ ⌬ 𝗕𝗼𝘁 𝗡𝗮𝗺𝗲 : 𝐕𝐀𝐍𝐒𝐒 𝐗 𝐁𝐎𝐓 𝟏𝟗𝟐𝟐
+  ├ ⌬ 𝗩𝗲𝗿𝘀𝗶𝗼𝗻    : 19.𝟮𝟮
   ├ ⌬ 𝗗𝗲𝘃𝗲𝗹𝗼𝗽𝗲𝗿  : 𝑽𝑨𝑵𝑺𝑺 X バンズ
-  ├ ⌬ 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗻   : @XIXI8778
-  ├ ⌬ 𝗣𝗿𝗲𝗳𝗶𝘅     : 𝗠𝗗
+  ├ ⌬ 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗻   : 𝗨𝗗𝗔𝗛 𝗣𝗘𝗡𝗦𝗜
+  ├ ⌬ 𝗣𝗿𝗲𝗳𝗶𝘅     : not detected 
   ╚──────────────⪩\n\n`);
 
 const credsPath  = path.join(cfg.sessionDir,"creds.json");
@@ -1009,7 +1093,7 @@ if (!hasSession) {
     _rawOut(`[ZANG] Menggunakan nomor bot dari config: ${phoneNumber}\n`);
   } else {
     const rl    = readline.createInterface({input:process.stdin,output:process.stdout});
-    const input = await question(rl,`\nMasukkan nomor WA bot (contoh: 6281234567890) [default: ${defaultNum}]: `);
+    const input = await question(rl,`\𝕾𝖊𝖘𝖘𝖎𝖔𝖓 𝕿𝖗𝖚𝖊 𝖜𝖆𝖎𝖙𝖎𝖓𝖌 𝖋𝖔𝖗 𝕮𝖔𝖓𝖓𝖊𝖈𝖙𝖎𝖓𝖌 [default: ${defaultNum}]: `);
     rl.close();
     if (input.trim()) phoneNumber=input.trim().replace(/[^0-9]/g,"");
     _rawOut(`[ZANG] Menggunakan nomor: ${phoneNumber}\n`);
