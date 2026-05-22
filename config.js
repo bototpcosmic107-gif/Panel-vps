@@ -14,7 +14,7 @@ export default {
   // Isi nomor WA bot kamu agar tidak perlu input saat start
   // Format internasional tanpa + contoh: "628xxx"
   // Biarkan "" kalau mau tetap diminta input saat pertama run
-  botNumber: "6283892978340",
+  botNumber: "6287752910121",
 
   // Nomor Admin — bisa 1 nomer (string) atau beberapa nomer (array)
   // Admin bisa menggunakan SEMUA perintah bot tanpa batasan

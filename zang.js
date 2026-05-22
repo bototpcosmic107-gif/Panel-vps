@@ -64,7 +64,12 @@ let reactionOn = false;
 let sendOn     = false;
 let welcomeOn  = cfg.welcomeOn ?? false;
 let botOnline  = false;
+let vanssOn    = false;   // fitur deteksi pesan dihapus
 let activeBots = {};
+
+// Cache pesan untuk fitur vanss (simpan sebelum dihapus)
+// key = messageId, value = { jid, sender, name, body, type, mediaBuffer }
+const msgCache = new Map();
 
 // ── Persisten (JSON) ─────────────────────────────────────────
 const DATA_FILE    = path.join(__dirname, "botData.json");
@@ -107,48 +112,49 @@ const menuText = (pushName="") => `
 𝑺𝑼𝑮𝑬𝑵𝑮 𝑹𝑨𝑾𝑼𝑯 𝑲𝑨𝑵𝑮 𝑴𝑨𝑺 ${pushName}
 ╔───𖣂 𝙄𝙉𝙁𝙊𝙍𝙈𝘼𝙏𝙄𝙊𝙉𖣂───╗
 ├ ⌬ 𝙱𝚘𝚝 𝙽𝚊𝚖𝚎      : 𝑩𝑶𝑻 𝑩𝑳𝑨𝑺𝑻
-├ ⌬ 𝚅𝚎𝚛𝚜𝚒𝚘𝚗       : 19.22
+├ ⌬ 𝚅𝚎𝚛𝚜𝚒𝚘𝚗       : 0.5
 ├ ⌬ 𝙳𝚎𝚟𝚎𝚕𝚘𝚙𝚎𝚛    : 𝑽𝑨𝑵𝑺𝑺 X バンズ
 ├ ⌬ 𝙾𝚆𝙽𝙴𝚁          : ${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}
-├ ⌬ 𝚃𝚎𝚕𝚎𝚐𝚛𝚊𝚖     : 𝗨𝗗𝗔𝗛 𝗣𝗘𝗡𝗦𝗜
+├ ⌬ 𝚃𝚎𝚕𝚎𝚐𝚛𝚊𝚖     : t.me/XIXI8778
 ├ ⌬ 𝚃𝚢𝚙𝚎           : 𝙼𝙳
 ╚──────────────⪩
 
 ╔─── 𝙶𝙴𝙽𝙴𝚁𝘼𝙻 ───╗
-↝ zang              
-↝ ft                
-↝ tt                
-↝ sh               
-↝ brat <teks>       
-↝ bratvid <teks>    
-↝ hd                
-↝ mp4 <link>        
-↝ mp3 <link>        
-↝ c <nomer>         
-↝ pay               
-↝ 600*2 / 600x2    
-╚─────────────╝
+↝ zang              : tampilkan menu
+↝ ft                : foto → stiker
+↝ tt                : stiker → foto
+↝ sh                : simpan foto sekali lihat
+↝ brat <teks>       : stiker teks (wrap ke bawah)
+↝ bratvid <teks>    : stiker animasi mengetik
+↝ hd                : foto/video → HD
+↝ mp4 <link>        : download TikTok video
+↝ mp3 <link>        : download TikTok audio
+↝ c <nomer>         : cek nomer WA & operator
+↝ pay               : info pembayaran
+↝ 600*2 / 600x2     : kalkulator harga
+╚──────────────────╝
 
 ╔─── 𝘼𝘿𝙈𝙄𝙉 𝙊𝙉𝙇𝙔 ───╗
-↝ online / offline  
-↝ self / public     
-↝ qris <nominal>    
-↝ setwelcome <teks> 
-↝ cekwelcome        
-↝ delwelcome        
-↝ welcome on/off    
-↝ antilink on/off  
-↝ reaction on/off   
-↝ send on/off      
-↝ blacklist         
-↝ unblacklist       
-↝ blacklistgc 
-↝ cekbl            
-↝ kick              
-↝ autojoin <link>  
-↝ jadibot <62xxx>   
-↝ stopbot <62xxx>   
-╚───────────────╝
+↝ online / offline  : status bot
+↝ self / public     : mode bot
+↝ qris <nominal>    : buat QRIS pembayaran
+↝ setwelcome <teks> : atur welcome grup (di grup)
+↝ cekwelcome        : lihat welcome grup ini
+↝ delwelcome        : hapus welcome grup ini
+↝ welcome on/off    : toggle fitur welcome
+↝ vanss on/off      : deteksi pesan dihapus
+↝ antilink on/off   : filter link di grup
+↝ reaction on/off   : reaction nomer WA
+↝ send on/off       : konfirmasi payment foto
+↝ blacklist         : reply chat → blacklist user
+↝ unblacklist       : reply chat → hapus blacklist
+↝ blacklistgc <link>: blacklist grup dari link
+↝ cekbl             : lihat daftar blacklist
+↝ kick              : reply chat → kick dari grup
+↝ autojoin <link>   : bot join grup/channel
+↝ jadibot <62xxx>   : buat bot calone
+↝ stopbot <62xxx>   : hentikan bot calone
+╚──────────────────╝
 `.trim();
 
 // ════════════════════════════════════════════════════════════
@@ -561,6 +567,8 @@ async function handleMessage(sock, msg) {
   if (lower==="reaction off") { if(!ownerFlag)return; reactionOn=false; return reply("🔕 Reaction *OFF*"); }
   if (lower==="send on")      { if(!ownerFlag)return; sendOn=true;      return reply("✅ Send mode *ON*"); }
   if (lower==="send off")     { if(!ownerFlag)return; sendOn=false;     return reply("🔕 Send mode *OFF*"); }
+  if (lower==="vanss on")  { if(!ownerFlag)return; vanssOn=true;  return reply("✅ Fitur *Vanss ON* — bot akan kirim pesan yang dihapus ke chat kamu."); }
+  if (lower==="vanss off") { if(!ownerFlag)return; vanssOn=false; return reply("🔕 Fitur *Vanss OFF*"); }
   if (lower==="welcome on")   { if(!ownerFlag)return; welcomeOn=true;   return reply("✅ Fitur *Welcome ON*"); }
   if (lower==="welcome off")  { if(!ownerFlag)return; welcomeOn=false;  return reply("🔕 Fitur *Welcome OFF*"); }
 
@@ -890,20 +898,71 @@ async function handleMessage(sock, msg) {
   // ── JADIBOT ───────────────────────────────────────────
   if (lower.startsWith("jadibot ")) {
     if (!ownerFlag) return reply("❌ Hanya admin!");
-    const num=body.slice(8).trim().replace(/[^0-9]/g,"");
+    const num = body.slice(8).trim().replace(/[^0-9]/g,"");
     if (!num) return reply("❌ Contoh: jadibot 6281234567890");
-    if (activeBots[num]) return reply(`⚠️ Bot ${num} sudah aktif!`);
-    await replyFast(`⏳ Membuat bot calone *${num}*...`);
+    if (activeBots[num]) return reply(`⚠️ Bot ${num} sudah aktif! Ketik *stopbot ${num}* dulu.`);
+    await replyFast(`⏳ Menyiapkan bot calone *${num}*...`);
     try {
-      const calonSession=path.join(cfg.sessionDir,`calon_${num}`);
+      const calonSession = path.join(cfg.sessionDir, `calon_${num}`);
       fs.ensureDirSync(calonSession);
-      const {sock:calonSock}=await createSock(calonSession);
-      const code=await requestPairingCode(calonSock,num);
-      activeBots[num]=calonSock;
-      attachEvents(calonSock,true);
-      if(code) await replyFast(`✅ Bot *${num}* siap!\n\n🔑 *Pairing Code:* \`${code}\`\n\n📱 WA → Setelan → Perangkat Tertaut → Masukkan Kode`);
-      else     await replyFast(`✅ Bot *${num}* sudah terhubung.`);
-    } catch(e){await replyFast("❌ Gagal: "+e.message);}
+      const { sock: calonSock } = await createSock(calonSession);
+      activeBots[num] = calonSock;
+      let calonPairingDone = false;
+
+      calonSock.ev.on("connection.update", async ({ connection, lastDisconnect }) => {
+        // Request pairing code sekali saja
+        if (!calonPairingDone && !calonSock.authState.creds.registered) {
+          calonPairingDone = true;
+          await sleep(2000);
+          try {
+            const code = await calonSock.requestPairingCode(num);
+            const fmt  = code?.match(/.{1,4}/g)?.join("-") || code;
+            await sock.sendMessage(jid, {
+              text:
+`✅ *Bot Calone ${num} Siap!*
+
+🔑 *Pairing Code:* \`${fmt}\`
+
+📱 Cara pairing di WA:
+1. Buka WA → Setelan (⚙️)
+2. Perangkat Tertaut
+3. Tautkan Perangkat
+4. Pilih "Tautkan dengan nomor telepon"
+5. Masukkan kode: *${fmt}*
+
+⏳ Kode berlaku ~60 detik. Kalau gagal kirim *stopbot ${num}* lalu *jadibot ${num}* lagi.`,
+            }).catch(()=>{});
+          } catch(e) {
+            await sock.sendMessage(jid, { text:`❌ Gagal buat pairing code: ${e.message}` }).catch(()=>{});
+          }
+        }
+
+        if (connection === "open") {
+          await sock.sendMessage(jid, { text:`✅ *Bot ${num} TERHUBUNG!*\nBot calone siap dipakai.` }).catch(()=>{});
+          attachEvents(calonSock, true);
+        }
+
+        if (connection === "close") {
+          const sc = lastDisconnect?.error?.output?.statusCode;
+          const shouldReconnect = sc !== DisconnectReason.loggedOut;
+          if (shouldReconnect) {
+            // Reconnect otomatis
+            await sleep(4000);
+            try {
+              const { sock: newCalon } = await createSock(calonSession);
+              activeBots[num] = newCalon;
+              attachEvents(newCalon, true);
+            } catch(_){}
+          } else {
+            delete activeBots[num];
+            await sock.sendMessage(jid, { text:`⚠️ Bot ${num} logged out. Ketik *jadibot ${num}* untuk sambung ulang.` }).catch(()=>{});
+          }
+        }
+      });
+
+      calonSock.ev.on("creds.update", async () => {});
+
+    } catch(e) { await replyFast("❌ Gagal buat bot calone: " + e.message); }
     return;
   }
 
@@ -956,6 +1015,158 @@ async function handleMessage(sock, msg) {
 // ════════════════════════════════════════════════════════════
 function attachEvents(sock, isCalon=false) {
 
+  // ── VANSS: Cache pesan masuk sebelum mungkin dihapus ──
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (type !== "notify") return;
+    for (const msg of messages) {
+      // Simpan ke cache untuk deteksi hapus
+      try {
+        const m   = msg.message;
+        if (!m || msg.key.fromMe) { /* skip pesan sendiri */ }
+        else {
+          const jid      = msg.key.remoteJid;
+          const sender   = msg.key.participant || msg.key.remoteJid || "";
+          const nomer    = sender.replace(/@.+/,"");
+          const nama     = msg.pushName || nomer;
+          const id       = msg.key.id;
+
+          // Tentukan isi pesan
+          const realM =
+            m.ephemeralMessage?.message ||
+            m.viewOnceMessage?.message  ||
+            m.viewOnceMessageV2?.message ||
+            m;
+
+          let body = realM.conversation || realM.extendedTextMessage?.text || "";
+          let type = "teks";
+          let mediaBuffer = null;
+          let mediaType   = null;
+
+          if (realM.imageMessage)    { type="foto";   mediaType="imageMessage"; }
+          else if (realM.videoMessage)  { type="video";  mediaType="videoMessage"; }
+          else if (realM.audioMessage)  { type="audio";  mediaType="audioMessage"; }
+          else if (realM.stickerMessage){ type="stiker"; mediaType="stickerMessage"; }
+          else if (realM.documentMessage){ type="dokumen"; mediaType="documentMessage"; }
+
+          const caption = realM.imageMessage?.caption || realM.videoMessage?.caption || "";
+          if (caption) body = caption;
+
+          // Simpan cache (max 500 entry, hapus yang lama)
+          if (msgCache.size > 500) {
+            const firstKey = msgCache.keys().next().value;
+            msgCache.delete(firstKey);
+          }
+          msgCache.set(id, { jid, sender, nomer, nama, body, type, mediaType, msg: JSON.parse(JSON.stringify(msg)) });
+        }
+      } catch(_) {}
+
+      // Auto-join dari undangan masuk admin
+      try {
+        const m = msg.message;
+        const groupInvite =
+          m?.groupInviteMessage ||
+          m?.extendedTextMessage?.contextInfo?.quotedMessage?.groupInviteMessage;
+        if (groupInvite && !msg.key.fromMe) {
+          const senderJid = msg.key.participant || msg.key.remoteJid || "";
+          if (checkOwner(senderJid, false)) {
+            const code = groupInvite.inviteCode;
+            if (code) await sock.groupAcceptInvite(code).catch(()=>{});
+          }
+        }
+      } catch(_){}
+
+      await handleMessage(sock, msg).catch((e)=>{ _rawErr(`[ZANG] Error: ${e.message}\n`); });
+    }
+  });
+
+  // ── VANSS: Deteksi pesan dihapus ──────────────────────
+  sock.ev.on("messages.update", async (updates) => {
+    if (!vanssOn) return;
+    for (const update of updates) {
+      try {
+        // Pesan dihapus untuk semua orang: protocolMessage type DELETE
+        const proto = update.update?.message?.protocolMessage;
+        if (!proto || proto.type !== 0) continue; // type 0 = REVOKE (hapus untuk semua)
+
+        const deletedId = proto.key?.id;
+        if (!deletedId) continue;
+
+        const cached = msgCache.get(deletedId);
+        if (!cached) continue; // tidak ada di cache, skip
+
+        msgCache.delete(deletedId); // hapus dari cache
+
+        const adminJid = `${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}@s.whatsapp.net`;
+
+        // Tentukan asal pesan
+        const isGrp    = isJidGroup(cached.jid);
+        let   asal     = isGrp ? `Grup` : "Chat Pribadi";
+        if (isGrp) {
+          try {
+            const meta = await sock.groupMetadata(cached.jid);
+            asal = `Grup: *${meta.subject}*`;
+          } catch(_){}
+        }
+
+        const waktu = new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"});
+
+        const notifHeader =
+`🔍 *PESAN DIHAPUS TERDETEKSI!*
+
+👤 *Dari*    : ${cached.nama} (+${cached.nomer})
+📍 *Di*      : ${asal}
+📌 *Tipe*    : ${cached.type}
+🕐 *Waktu*   : ${waktu}
+─────────────────────`;
+
+        if (cached.type === "teks" || !cached.mediaType) {
+          const isiPesan = cached.body || "_(pesan kosong / tidak tertangkap)_";
+          await sock.sendMessage(adminJid, {
+            text: `${notifHeader}\n💬 *Pesan:*\n${isiPesan}`,
+          }).catch(()=>{});
+        } else {
+          // Ada media — coba kirim ulang media dari cache msg
+          try {
+            const cachedMsg = cached.msg;
+            const realM = cachedMsg.message?.ephemeralMessage?.message || cachedMsg.message;
+            const mediaMsg = realM?.[cached.mediaType];
+
+            if (mediaMsg) {
+              const buf = await downloadMediaMessage(
+                cachedMsg, "buffer", {},
+                { logger:_pino, reuploadRequest: sock.updateMediaMessage }
+              ).catch(()=>null);
+
+              const notifText = `${notifHeader}\n💬 *Caption:* ${cached.body||"(tidak ada)"}`;
+
+              if (buf) {
+                if (cached.type==="foto") {
+                  await sock.sendMessage(adminJid,{image:buf,caption:notifText,mimetype:"image/jpeg"}).catch(()=>{});
+                } else if (cached.type==="video") {
+                  await sock.sendMessage(adminJid,{video:buf,caption:notifText,mimetype:"video/mp4"}).catch(()=>{});
+                } else if (cached.type==="stiker") {
+                  await sock.sendMessage(adminJid,{sticker:buf}).catch(()=>{});
+                  await sock.sendMessage(adminJid,{text:notifText}).catch(()=>{});
+                } else if (cached.type==="audio") {
+                  await sock.sendMessage(adminJid,{audio:buf,mimetype:"audio/ogg; codecs=opus",ptt:true}).catch(()=>{});
+                  await sock.sendMessage(adminJid,{text:notifText}).catch(()=>{});
+                } else {
+                  await sock.sendMessage(adminJid,{text:notifText+`\n\n_(Media tidak bisa dikirim ulang)_`}).catch(()=>{});
+                }
+              } else {
+                await sock.sendMessage(adminJid,{text:notifText+`\n\n_(Media sudah tidak bisa diunduh)_`}).catch(()=>{});
+              }
+            } else {
+              await sock.sendMessage(adminJid,{text:`${notifHeader}\n_(Isi media tidak tertangkap)_`}).catch(()=>{});
+            }
+          } catch(e) {
+            await sock.sendMessage(adminJid,{text:`${notifHeader}\n_(Gagal ambil media: ${e.message})_`}).catch(()=>{});
+          }
+        }
+      } catch(_){}
+    }
+  });
+
   // ── Welcome member baru — benar-benar menyambut ───────
   sock.ev.on("group-participants.update", async ({ id, participants, action }) => {
     if (action !== "add") return;
@@ -991,31 +1202,6 @@ function attachEvents(sock, isCalon=false) {
     }
   });
 
-  // ── Auto join undangan masuk ───────────────────────────
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
-    for (const msg of messages) {
-      // Cek apakah ada invite grup di pesan
-      try {
-        const m = msg.message;
-        const groupInvite =
-          m?.groupInviteMessage ||
-          m?.extendedTextMessage?.contextInfo?.quotedMessage?.groupInviteMessage;
-        if (groupInvite && !msg.key.fromMe) {
-          // Hanya auto-join kalau pengirim adalah admin
-          const senderJid = msg.key.participant || msg.key.remoteJid || "";
-          if (checkOwner(senderJid, false)) {
-            const code = groupInvite.inviteCode;
-            if (code) {
-              await sock.groupAcceptInvite(code).catch(()=>{});
-            }
-          }
-        }
-      } catch(_){}
-
-      await handleMessage(sock, msg).catch((e)=>{ _rawErr(`[ZANG] Error: ${e.message}\n`); });
-    }
-  });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1051,7 +1237,7 @@ async function startMainBot(phoneNumber) {
         await sleep(2000);
         const adminJid=`${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}@s.whatsapp.net`;
         const imgPath =path.join(__dirname,"zang.jpg");
-        const notifText=`╔───── BOT CONNECT ─────╗\n├ ✅ ＤＯＮＥ Ｓｕｃｃｅｓｓ Ｃｏｎｎｅｃｔ\n├ 📅 ＴＩＭＥ  : ${new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}\n├ 📱 𝘕𝘶𝘮𝘣𝘦𝘳𝘴 𝘣𝘰𝘵 : ${phoneNumber}\n├ 🔴 Status : OFFLINE\n╚───────────────────────╝`;
+        const notifText=`╔───── BOT CONNECT ─────╗\n├ ✅ *Bot berhasil terhubung!*\n├ 📅 Waktu  : ${new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"})}\n├ 📱 BotNum : ${phoneNumber}\n├ 🔴 Status : OFFLINE (kirim *online*)\n╚───────────────────────╝`;
         if(fs.existsSync(imgPath)) await sock.sendMessage(adminJid,{image:fs.readFileSync(imgPath),caption:notifText,mimetype:"image/jpeg"});
         else await sock.sendMessage(adminJid,{text:notifText});
       } catch(_){}
@@ -1074,11 +1260,11 @@ async function startMainBot(phoneNumber) {
 // ════════════════════════════════════════════════════════════
 _rawOut(`
   ╔───𖣂 𝙄𝙉𝙁𝙊𝙍𝙈𝘼𝙏𝙄𝙊𝙉 𖣂───╗
-  ├ ⌬ 𝗕𝗼𝘁 𝗡𝗮𝗺𝗲 : 𝐕𝐀𝐍𝐒𝐒 𝐗 𝐁𝐎𝐓 𝟏𝟗𝟐𝟐
-  ├ ⌬ 𝗩𝗲𝗿𝘀𝗶𝗼𝗻    : 19.𝟮𝟮
+  ├ ⌬ 𝗕𝗼𝘁 𝗡𝗮𝗺𝗲 : 𝑩𝑶𝑻 𝑩𝑳𝑨𝑺𝑻
+  ├ ⌬ 𝗩𝗲𝗿𝘀𝗶𝗼𝗻    : 0.5
   ├ ⌬ 𝗗𝗲𝘃𝗲𝗹𝗼𝗽𝗲𝗿  : 𝑽𝑨𝑵𝑺𝑺 X バンズ
-  ├ ⌬ 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗻   : 𝗨𝗗𝗔𝗛 𝗣𝗘𝗡𝗦𝗜
-  ├ ⌬ 𝗣𝗿𝗲𝗳𝗶𝘅     : not detected 
+  ├ ⌬ 𝗧𝗲𝗹𝗲𝗴𝗿𝗮𝗻   : @XIXI8778
+  ├ ⌬ 𝗣𝗿𝗲𝗳𝗶𝘅     : 𝗠𝗗
   ╚──────────────⪩\n\n`);
 
 const credsPath  = path.join(cfg.sessionDir,"creds.json");
@@ -1093,7 +1279,7 @@ if (!hasSession) {
     _rawOut(`[ZANG] Menggunakan nomor bot dari config: ${phoneNumber}\n`);
   } else {
     const rl    = readline.createInterface({input:process.stdin,output:process.stdout});
-    const input = await question(rl,`\𝕾𝖊𝖘𝖘𝖎𝖔𝖓 𝕿𝖗𝖚𝖊 𝖜𝖆𝖎𝖙𝖎𝖓𝖌 𝖋𝖔𝖗 𝕮𝖔𝖓𝖓𝖊𝖈𝖙𝖎𝖓𝖌 [default: ${defaultNum}]: `);
+    const input = await question(rl,`\nMasukkan nomor WA bot (contoh: 6281234567890) [default: ${defaultNum}]: `);
     rl.close();
     if (input.trim()) phoneNumber=input.trim().replace(/[^0-9]/g,"");
     _rawOut(`[ZANG] Menggunakan nomor: ${phoneNumber}\n`);
