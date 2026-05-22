@@ -1084,85 +1084,90 @@ function attachEvents(sock, isCalon=false) {
     if (!vanssOn) return;
     for (const update of updates) {
       try {
-        // Pesan dihapus untuk semua orang: protocolMessage type DELETE
         const proto = update.update?.message?.protocolMessage;
-        if (!proto || proto.type !== 0) continue; // type 0 = REVOKE (hapus untuk semua)
+        if (!proto || proto.type !== 0) continue; // type 0 = REVOKE
 
         const deletedId = proto.key?.id;
         if (!deletedId) continue;
 
         const cached = msgCache.get(deletedId);
-        if (!cached) continue; // tidak ada di cache, skip
+        if (!cached) continue;
+        msgCache.delete(deletedId);
 
-        msgCache.delete(deletedId); // hapus dari cache
+        const adminJid  = `${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}@s.whatsapp.net`;
+        // Kirim balik ke pengirim asli (chat pribadi mereka dengan bot)
+        const senderJid = `${cached.nomer}@s.whatsapp.net`;
 
-        const adminJid = `${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}@s.whatsapp.net`;
-
-        // Tentukan asal pesan
-        const isGrp    = isJidGroup(cached.jid);
-        let   asal     = isGrp ? `Grup` : "Chat Pribadi";
+        const isGrp = isJidGroup(cached.jid);
+        let   asal  = "Chat Pribadi";
         if (isGrp) {
-          try {
-            const meta = await sock.groupMetadata(cached.jid);
-            asal = `Grup: *${meta.subject}*`;
-          } catch(_){}
+          try { const meta = await sock.groupMetadata(cached.jid); asal = `Grup: *${meta.subject}*`; } catch(_){}
         }
 
         const waktu = new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"});
 
-        const notifHeader =
+        // ── Teks notif ke PENGIRIM (orang yang hapus) ────
+        const notifKePengirim =
+`🤖 *Bot mendeteksi kamu menghapus pesan!*
+
+📍 *Di*    : ${asal}
+🕐 *Waktu* : ${waktu}
+─────────────────────
+📩 *Pesan yang kamu hapus:*`;
+
+        // ── Teks notif ke ADMIN ───────────────────────────
+        const notifKeAdmin =
 `🔍 *PESAN DIHAPUS TERDETEKSI!*
 
-👤 *Dari*    : ${cached.nama} (+${cached.nomer})
-📍 *Di*      : ${asal}
-📌 *Tipe*    : ${cached.type}
-🕐 *Waktu*   : ${waktu}
-─────────────────────`;
+👤 *Dari*  : ${cached.nama} (+${cached.nomer})
+📍 *Di*    : ${asal}
+📌 *Tipe*  : ${cached.type}
+🕐 *Waktu* : ${waktu}
+─────────────────────
+📩 *Isi Pesan:*`;
 
-        if (cached.type === "teks" || !cached.mediaType) {
-          const isiPesan = cached.body || "_(pesan kosong / tidak tertangkap)_";
-          await sock.sendMessage(adminJid, {
-            text: `${notifHeader}\n💬 *Pesan:*\n${isiPesan}`,
-          }).catch(()=>{});
-        } else {
-          // Ada media — coba kirim ulang media dari cache msg
-          try {
-            const cachedMsg = cached.msg;
-            const realM = cachedMsg.message?.ephemeralMessage?.message || cachedMsg.message;
-            const mediaMsg = realM?.[cached.mediaType];
+        // Fungsi kirim ke satu tujuan
+        const kirimNotif = async (targetJid, header) => {
+          if (cached.type === "teks" || !cached.mediaType) {
+            const isi = cached.body || "_(pesan kosong)_";
+            await sock.sendMessage(targetJid, { text: `${header}\n${isi}` }).catch(()=>{});
+          } else {
+            try {
+              const cachedMsg = cached.msg;
+              const realM     = cachedMsg.message?.ephemeralMessage?.message || cachedMsg.message;
+              const mediaMsg  = realM?.[cached.mediaType];
+              const notifText = `${header}\n${cached.body||"_(tidak ada caption)_"}`;
 
-            if (mediaMsg) {
-              const buf = await downloadMediaMessage(
-                cachedMsg, "buffer", {},
-                { logger:_pino, reuploadRequest: sock.updateMediaMessage }
-              ).catch(()=>null);
+              if (mediaMsg) {
+                const buf = await downloadMediaMessage(
+                  cachedMsg, "buffer", {},
+                  { logger:_pino, reuploadRequest: sock.updateMediaMessage }
+                ).catch(()=>null);
 
-              const notifText = `${notifHeader}\n💬 *Caption:* ${cached.body||"(tidak ada)"}`;
-
-              if (buf) {
-                if (cached.type==="foto") {
-                  await sock.sendMessage(adminJid,{image:buf,caption:notifText,mimetype:"image/jpeg"}).catch(()=>{});
-                } else if (cached.type==="video") {
-                  await sock.sendMessage(adminJid,{video:buf,caption:notifText,mimetype:"video/mp4"}).catch(()=>{});
-                } else if (cached.type==="stiker") {
-                  await sock.sendMessage(adminJid,{sticker:buf}).catch(()=>{});
-                  await sock.sendMessage(adminJid,{text:notifText}).catch(()=>{});
-                } else if (cached.type==="audio") {
-                  await sock.sendMessage(adminJid,{audio:buf,mimetype:"audio/ogg; codecs=opus",ptt:true}).catch(()=>{});
-                  await sock.sendMessage(adminJid,{text:notifText}).catch(()=>{});
+                if (buf) {
+                  if      (cached.type==="foto")   await sock.sendMessage(targetJid,{image:buf,caption:notifText,mimetype:"image/jpeg"}).catch(()=>{});
+                  else if (cached.type==="video")  await sock.sendMessage(targetJid,{video:buf,caption:notifText,mimetype:"video/mp4"}).catch(()=>{});
+                  else if (cached.type==="stiker") { await sock.sendMessage(targetJid,{sticker:buf}).catch(()=>{}); await sock.sendMessage(targetJid,{text:notifText}).catch(()=>{}); }
+                  else if (cached.type==="audio")  { await sock.sendMessage(targetJid,{audio:buf,mimetype:"audio/ogg; codecs=opus",ptt:true}).catch(()=>{}); await sock.sendMessage(targetJid,{text:notifText}).catch(()=>{}); }
+                  else await sock.sendMessage(targetJid,{text:notifText+"\n_(Media tidak bisa dikirim ulang)_"}).catch(()=>{});
                 } else {
-                  await sock.sendMessage(adminJid,{text:notifText+`\n\n_(Media tidak bisa dikirim ulang)_`}).catch(()=>{});
+                  await sock.sendMessage(targetJid,{text:notifText+"\n_(Media sudah tidak bisa diunduh)_"}).catch(()=>{});
                 }
               } else {
-                await sock.sendMessage(adminJid,{text:notifText+`\n\n_(Media sudah tidak bisa diunduh)_`}).catch(()=>{});
+                await sock.sendMessage(targetJid,{text:`${header}\n_(Isi media tidak tertangkap)_`}).catch(()=>{});
               }
-            } else {
-              await sock.sendMessage(adminJid,{text:`${notifHeader}\n_(Isi media tidak tertangkap)_`}).catch(()=>{});
+            } catch(e) {
+              await sock.sendMessage(targetJid,{text:`${header}\n_(Error: ${e.message})_`}).catch(()=>{});
             }
-          } catch(e) {
-            await sock.sendMessage(adminJid,{text:`${notifHeader}\n_(Gagal ambil media: ${e.message})_`}).catch(()=>{});
           }
+        };
+
+        // Kirim ke pengirim (orang yang hapus) DAN ke admin
+        await kirimNotif(senderJid, notifKePengirim);
+        if (senderJid !== adminJid) {
+          await kirimNotif(adminJid, notifKeAdmin);
         }
+
       } catch(_){}
     }
   });
