@@ -1027,7 +1027,7 @@ function attachEvents(sock, isCalon=false) {
           const jid      = msg.key.remoteJid;
           const sender   = msg.key.participant || msg.key.remoteJid || "";
           const nomer    = sender.replace(/@.+/,"");
-          const nama     = msg.pushName || nomer;
+          const nama     = nomer; // pakai nomer saja, nama kontak tidak reliable
           const id       = msg.key.id;
 
           // Tentukan isi pesan
@@ -1119,7 +1119,7 @@ function attachEvents(sock, isCalon=false) {
         const notifKeAdmin =
 `🔍 *PESAN DIHAPUS TERDETEKSI!*
 
-👤 *Dari*  : ${cached.nama} (+${cached.nomer})
+📱 *Nomer* : +${cached.nomer}
 📍 *Di*    : ${asal}
 📌 *Tipe*  : ${cached.type}
 🕐 *Waktu* : ${waktu}
