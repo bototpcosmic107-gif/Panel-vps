@@ -50,4 +50,19 @@ export default {
   // ── WELCOME GRUP ─────────────────────────────────────────────
   // Status awal fitur welcome: true = aktif, false = nonaktif
   welcomeOn: false,
+
+  // ── AI (Gemini) ───────────────────────────────────────────────
+  // Daftar API Key gratis di: https://aistudio.google.com/app/apikey
+  // AI menjawab pertanyaan pakai bahasa Jawa (kasar/krama/halus)
+  ai: {
+    // API Key Google Gemini
+    apiKey: "AIzaSyDJ5NiRZe7bo6_y6aZ-5OHsxmzziNuh1JA",
+
+    // Aktif awal: true = langsung aktif saat bot start
+    aktif: true,
+
+    // Gaya bahasa Jawa: "kasar" | "krama" | "halus" | "campur"
+    // campur = acak antara krama dan kasar tergantung konteks
+    gaya: "campur",
+  },
 };

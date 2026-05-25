@@ -64,7 +64,8 @@ let reactionOn = false;
 let sendOn     = false;
 let welcomeOn  = cfg.welcomeOn ?? false;
 let botOnline  = false;
-let vanssOn    = false;   // fitur deteksi pesan dihapus
+let vanssOn    = false;
+let aiOn       = cfg.ai?.aktif ?? true;  // AI on/off, default dari config
 let activeBots = {};
 
 // Cache pesan untuk fitur vanss (simpan sebelum dihapus)
@@ -142,7 +143,8 @@ const menuText = (pushName="") => `
 ↝ cekwelcome        : lihat welcome grup ini
 ↝ delwelcome        : hapus welcome grup ini
 ↝ welcome on/off    : toggle fitur welcome
-↝ vanss on/off      : deteksi pesan dihapus
+↝ ai on/off         : aktifkan/nonaktifkan fitur AI
+↝ vanss on/off      : kirim balik pesan hapus ke pengirim (notif admin selalu aktif)
 ↝ antilink on/off   : filter link di grup
 ↝ reaction on/off   : reaction nomer WA
 ↝ send on/off       : konfirmasi payment foto
@@ -432,6 +434,67 @@ Scan QRIS di atas lalu tunggu konfirmasi otomatis. ✅`;
 }
 
 // ════════════════════════════════════════════════════════════
+//   AI — Google Gemini dengan kepribadian Jawa
+// ════════════════════════════════════════════════════════════
+const aiHistory = new Map(); // { jid: [ {role, parts} ] }  — konteks per chat
+
+async function tanyaAI(pertanyaan, jid, gaya="campur") {
+  const apiKey = cfg.ai?.apiKey;
+  if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY") throw new Error("API Key Gemini belum diisi di config.js!");
+
+  const systemPrompt =
+`Kowe iku asisten AI sing njawab nganggo basa Jawa wae.
+Aturan wajib:
+1. Gunakno basa Jawa ${gaya === "kasar" ? "kasar/ngoko" : gaya === "krama" ? "krama inggil" : gaya === "halus" ? "krama alus" : "campuran ngoko lan krama, sesuaikan karo konteks"}.
+2. Jawaban KUDU singkat, padat, ora bertele-tele. Maksimal 3-4 kalimat.
+3. Nek pertanyaan butuh langkah-langkah, tulis ringkes ae.
+4. Ojo nganggo basa Indonesia utowo Inggris, BASA JAWA WOLU.
+5. Nek ora ngerti jawabane, kandakno jujur nganggo basa Jawa.
+6. Tetep sopan sanajan nganggo basa ngoko.`;
+
+  // Ambil atau buat history untuk jid ini (max 6 pesan terakhir agar tidak boros token)
+  if (!aiHistory.has(jid)) aiHistory.set(jid, []);
+  const history = aiHistory.get(jid);
+
+  // Tambah pertanyaan user ke history
+  history.push({ role: "user", parts: [{ text: pertanyaan }] });
+
+  // Batasi history max 10 message (5 bolak-balik)
+  if (history.length > 10) history.splice(0, history.length - 10);
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+  const body = {
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: history,
+    generationConfig: {
+      temperature: 0.85,
+      maxOutputTokens: 300,
+      topP: 0.9,
+    },
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+    ],
+  };
+
+  const { data } = await axios.post(url, body, {
+    headers: { "Content-Type": "application/json" },
+    timeout: 20000,
+  });
+
+  const jawaban = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!jawaban) throw new Error("AI tidak memberikan jawaban.");
+
+  // Simpan jawaban AI ke history
+  history.push({ role: "model", parts: [{ text: jawaban }] });
+
+  return jawaban;
+}
+
+// ════════════════════════════════════════════════════════════
 //   BUAT SOCKET
 // ════════════════════════════════════════════════════════════
 async function createSock(sessionPath) {
@@ -567,6 +630,8 @@ async function handleMessage(sock, msg) {
   if (lower==="reaction off") { if(!ownerFlag)return; reactionOn=false; return reply("🔕 Reaction *OFF*"); }
   if (lower==="send on")      { if(!ownerFlag)return; sendOn=true;      return reply("✅ Send mode *ON*"); }
   if (lower==="send off")     { if(!ownerFlag)return; sendOn=false;     return reply("🔕 Send mode *OFF*"); }
+  if (lower==="ai on")    { if(!ownerFlag)return; aiOn=true;    return reply("✅ Fitur *AI ON* — bot akan jawab pertanyaan pakai basa Jawa."); }
+  if (lower==="ai off")   { if(!ownerFlag)return; aiOn=false;   return reply("🔕 Fitur *AI OFF*"); }
   if (lower==="vanss on")  { if(!ownerFlag)return; vanssOn=true;  return reply("✅ Fitur *Vanss ON* — bot akan kirim pesan yang dihapus ke chat kamu."); }
   if (lower==="vanss off") { if(!ownerFlag)return; vanssOn=false; return reply("🔕 Fitur *Vanss OFF*"); }
   if (lower==="welcome on")   { if(!ownerFlag)return; welcomeOn=true;   return reply("✅ Fitur *Welcome ON*"); }
@@ -995,7 +1060,7 @@ async function handleMessage(sock, msg) {
         if(/^(0811|0812|0813|0821|0822|0823|0851|0852|0853)/.test(p)) return "Telkomsel";
         if(/^(0814|0815|0816|0855|0856|0857|0858|0828)/.test(p))      return "Indosat Ooredoo";
         if(/^(0817|0818|0819|0859|0877|0878)/.test(p))                return "XL Axiata";
-        if(/^(0831|0832|0833|0838)/.test(p))                          return "Axis";
+        if(/^(0831|0812|0833|0838)/.test(p))                          return "Axis";
         if(/^(0881|0882|0883|0884|0885|0886|0887|0888|0889)/.test(p)) return "Smartfren";
         if(/^(0895|0896|0897|0898|0899)/.test(p))                     return "Three (3)";
         return "Tidak dikenali";
@@ -1008,6 +1073,38 @@ async function handleMessage(sock, msg) {
     } catch(e){await react("❌");await replyFast("❌ Gagal: "+e.message);}
     await setPresence(sock,jid,"paused"); return;
   }
+
+  // ── AI AUTO-REPLY ─────────────────────────────────────
+  // Menjawab otomatis jika:
+  // 1. aiOn aktif
+  // 2. Pesan mengandung tanda tanya ATAU mention bot ATAU kata tanya Jawa/Indonesia
+  // 3. Bukan command yang sudah dihandle di atas
+  // 4. Pesan bukan kosong
+  if (aiOn && body.length > 2) {
+    const isQuestion =
+      body.includes("?") ||
+      /^(apa|siapa|gimana|bagaimana|kenapa|mengapa|kapan|mana|berapa|piye|sopo|opo|pira|ngendi|kepriye|gak|ora|kok|lho|lha|wah|eh|iku|iki|kuwi)/i.test(lower) ||
+      /^(tolong|coba|jelasno|terangno|critano|kandakno|ngomong)/i.test(lower);
+
+    // Di grup: hanya jawab kalau ada tanda tanya atau kata tanya
+    // Di chat pribadi: jawab semua pesan yang masuk akal
+    const shouldAnswer = isGroup ? isQuestion : (body.length > 2);
+
+    if (shouldAnswer && cfg.ai?.apiKey && cfg.ai.apiKey !== "YOUR_GEMINI_API_KEY") {
+      try {
+        await setPresence(sock, jid, "composing");
+        const gaya   = cfg.ai?.gaya || "campur";
+        const jawaban = await tanyaAI(body, jid, gaya);
+        await sleep(Math.min(jawaban.length * 30, 2000)); // typing effect sesuai panjang jawaban
+        await sock.sendMessage(jid, { text: jawaban }, { quoted: msg });
+        await setPresence(sock, jid, "paused");
+      } catch(e) {
+        await setPresence(sock, jid, "paused");
+        // Diam saja kalau error AI, jangan spam error ke user
+        _rawErr(`[AI] Error: ${e.message}\n`);
+      }
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1015,77 +1112,84 @@ async function handleMessage(sock, msg) {
 // ════════════════════════════════════════════════════════════
 function attachEvents(sock, isCalon=false) {
 
-  // ── VANSS: Cache pesan masuk sebelum mungkin dihapus ──
+  // ════════════════════════════════════════════════════
+  //   VANSS — SELALU AKTIF (tidak peduli online/offline/mode)
+  //   Cache semua pesan masuk SEBELUM apapun
+  // ════════════════════════════════════════════════════
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
     if (type !== "notify") return;
     for (const msg of messages) {
-      // Simpan ke cache untuk deteksi hapus
+
+      // ── Cache untuk vanss — jalankan PERTAMA, tidak ada syarat ──
       try {
-        const m   = msg.message;
-        if (!m || msg.key.fromMe) { /* skip pesan sendiri */ }
-        else {
-          const jid      = msg.key.remoteJid;
+        const m = msg.message;
+        if (m && !msg.key.fromMe) {
+          const msgJid   = msg.key.remoteJid;
           const sender   = msg.key.participant || msg.key.remoteJid || "";
           const nomer    = sender.replace(/@.+/,"");
-          const nama     = nomer; // pakai nomer saja, nama kontak tidak reliable
           const id       = msg.key.id;
 
-          // Tentukan isi pesan
           const realM =
             m.ephemeralMessage?.message ||
             m.viewOnceMessage?.message  ||
             m.viewOnceMessageV2?.message ||
             m;
 
-          let body = realM.conversation || realM.extendedTextMessage?.text || "";
-          let type = "teks";
-          let mediaBuffer = null;
-          let mediaType   = null;
+          let msgBody  = realM.conversation || realM.extendedTextMessage?.text || "";
+          let msgType  = "teks";
+          let mediaType = null;
 
-          if (realM.imageMessage)    { type="foto";   mediaType="imageMessage"; }
-          else if (realM.videoMessage)  { type="video";  mediaType="videoMessage"; }
-          else if (realM.audioMessage)  { type="audio";  mediaType="audioMessage"; }
-          else if (realM.stickerMessage){ type="stiker"; mediaType="stickerMessage"; }
-          else if (realM.documentMessage){ type="dokumen"; mediaType="documentMessage"; }
+          if      (realM.imageMessage)    { msgType="foto";    mediaType="imageMessage"; }
+          else if (realM.videoMessage)    { msgType="video";   mediaType="videoMessage"; }
+          else if (realM.audioMessage)    { msgType="audio";   mediaType="audioMessage"; }
+          else if (realM.stickerMessage)  { msgType="stiker";  mediaType="stickerMessage"; }
+          else if (realM.documentMessage) { msgType="dokumen"; mediaType="documentMessage"; }
 
-          const caption = realM.imageMessage?.caption || realM.videoMessage?.caption || "";
-          if (caption) body = caption;
+          const cap = realM.imageMessage?.caption || realM.videoMessage?.caption || "";
+          if (cap) msgBody = cap;
 
-          // Simpan cache (max 500 entry, hapus yang lama)
-          if (msgCache.size > 500) {
-            const firstKey = msgCache.keys().next().value;
-            msgCache.delete(firstKey);
-          }
-          msgCache.set(id, { jid, sender, nomer, nama, body, type, mediaType, msg: JSON.parse(JSON.stringify(msg)) });
+          // Rotasi cache max 500
+          if (msgCache.size >= 500) msgCache.delete(msgCache.keys().next().value);
+
+          // Simpan full msg object untuk download media nanti
+          msgCache.set(id, {
+            jid: msgJid, sender, nomer, body: msgBody,
+            type: msgType, mediaType,
+            rawMsg: msg,   // simpan referensi langsung, bukan JSON.parse agar media bisa didownload
+          });
         }
       } catch(_) {}
 
-      // Auto-join dari undangan masuk admin
+      // ── Auto-join undangan dari admin ──────────────────
       try {
         const m = msg.message;
-        const groupInvite =
+        const inv =
           m?.groupInviteMessage ||
           m?.extendedTextMessage?.contextInfo?.quotedMessage?.groupInviteMessage;
-        if (groupInvite && !msg.key.fromMe) {
-          const senderJid = msg.key.participant || msg.key.remoteJid || "";
-          if (checkOwner(senderJid, false)) {
-            const code = groupInvite.inviteCode;
+        if (inv && !msg.key.fromMe) {
+          const sJid = msg.key.participant || msg.key.remoteJid || "";
+          if (checkOwner(sJid, false)) {
+            const code = inv.inviteCode;
             if (code) await sock.groupAcceptInvite(code).catch(()=>{});
           }
         }
       } catch(_){}
 
+      // ── Handle command (bisa offline/online, diatur di handleMessage) ──
       await handleMessage(sock, msg).catch((e)=>{ _rawErr(`[ZANG] Error: ${e.message}\n`); });
     }
   });
 
-  // ── VANSS: Deteksi pesan dihapus ──────────────────────
+  // ════════════════════════════════════════════════════
+  //   VANSS — Deteksi pesan dihapus
+  //   SELALU AKTIF — tidak ada gate vanssOn di sini
+  //   vanssOn hanya untuk toggle notif ke PENGIRIM
+  // ════════════════════════════════════════════════════
   sock.ev.on("messages.update", async (updates) => {
-    if (!vanssOn) return;
     for (const update of updates) {
       try {
         const proto = update.update?.message?.protocolMessage;
-        if (!proto || proto.type !== 0) continue; // type 0 = REVOKE
+        if (!proto || proto.type !== 0) continue; // 0 = REVOKE (hapus untuk semua)
 
         const deletedId = proto.key?.id;
         if (!deletedId) continue;
@@ -1095,77 +1199,84 @@ function attachEvents(sock, isCalon=false) {
         msgCache.delete(deletedId);
 
         const adminJid  = `${Array.isArray(cfg.adminNumber)?cfg.adminNumber[0]:cfg.adminNumber}@s.whatsapp.net`;
-        // Kirim balik ke pengirim asli (chat pribadi mereka dengan bot)
         const senderJid = `${cached.nomer}@s.whatsapp.net`;
 
+        // Cari nama grup jika dari grup
         const isGrp = isJidGroup(cached.jid);
-        let   asal  = "Chat Pribadi";
+        let lokasiStr = "Chat Pribadi";
         if (isGrp) {
-          try { const meta = await sock.groupMetadata(cached.jid); asal = `Grup: *${meta.subject}*`; } catch(_){}
+          try {
+            const meta = await sock.groupMetadata(cached.jid);
+            lokasiStr  = meta.subject || cached.jid;
+          } catch(_){ lokasiStr = cached.jid; }
         }
 
-        const waktu = new Date().toLocaleString("id-ID",{timeZone:"Asia/Jakarta"});
+        const waktu = new Date().toLocaleString("id-ID",{
+          timeZone:"Asia/Jakarta",
+          day:"2-digit", month:"2-digit", year:"numeric",
+          hour:"2-digit", minute:"2-digit",
+        });
 
-        // ── Teks notif ke PENGIRIM (orang yang hapus) ────
-        const notifKePengirim =
-`🤖 *Bot mendeteksi kamu menghapus pesan!*
-
-📍 *Di*    : ${asal}
-🕐 *Waktu* : ${waktu}
-─────────────────────
-📩 *Pesan yang kamu hapus:*`;
-
-        // ── Teks notif ke ADMIN ───────────────────────────
-        const notifKeAdmin =
+        // ── Format notif ke ADMIN ─────────────────────
+        const headerAdmin =
 `🔍 *PESAN DIHAPUS TERDETEKSI!*
 
 📱 *Nomer* : +${cached.nomer}
-📍 *Di*    : ${asal}
+📍 *Di*    : ${lokasiStr}
 📌 *Tipe*  : ${cached.type}
 🕐 *Waktu* : ${waktu}
 ─────────────────────
 📩 *Isi Pesan:*`;
 
-        // Fungsi kirim ke satu tujuan
+        // ── Format notif ke PENGIRIM (orang yang hapus) ─
+        const headerPengirim =
+`🤖 *Bot mendeteksi kamu menghapus pesan!*
+
+📍 *Di*    : ${lokasiStr}
+🕐 *Waktu* : ${waktu}
+─────────────────────
+📩 *Pesan yang kamu hapus:*`;
+
+        // Fungsi kirim notif ke target
         const kirimNotif = async (targetJid, header) => {
           if (cached.type === "teks" || !cached.mediaType) {
-            const isi = cached.body || "_(pesan kosong)_";
+            const isi = cached.body?.trim() || "_(pesan kosong)_";
             await sock.sendMessage(targetJid, { text: `${header}\n${isi}` }).catch(()=>{});
           } else {
+            const notifTeks = `${header}\n${cached.body?.trim()||"_(tidak ada caption)_"}`;
             try {
-              const cachedMsg = cached.msg;
-              const realM     = cachedMsg.message?.ephemeralMessage?.message || cachedMsg.message;
-              const mediaMsg  = realM?.[cached.mediaType];
-              const notifText = `${header}\n${cached.body||"_(tidak ada caption)_"}`;
+              const buf = await downloadMediaMessage(
+                cached.rawMsg, "buffer", {},
+                { logger:_pino, reuploadRequest: sock.updateMediaMessage }
+              ).catch(()=>null);
 
-              if (mediaMsg) {
-                const buf = await downloadMediaMessage(
-                  cachedMsg, "buffer", {},
-                  { logger:_pino, reuploadRequest: sock.updateMediaMessage }
-                ).catch(()=>null);
-
-                if (buf) {
-                  if      (cached.type==="foto")   await sock.sendMessage(targetJid,{image:buf,caption:notifText,mimetype:"image/jpeg"}).catch(()=>{});
-                  else if (cached.type==="video")  await sock.sendMessage(targetJid,{video:buf,caption:notifText,mimetype:"video/mp4"}).catch(()=>{});
-                  else if (cached.type==="stiker") { await sock.sendMessage(targetJid,{sticker:buf}).catch(()=>{}); await sock.sendMessage(targetJid,{text:notifText}).catch(()=>{}); }
-                  else if (cached.type==="audio")  { await sock.sendMessage(targetJid,{audio:buf,mimetype:"audio/ogg; codecs=opus",ptt:true}).catch(()=>{}); await sock.sendMessage(targetJid,{text:notifText}).catch(()=>{}); }
-                  else await sock.sendMessage(targetJid,{text:notifText+"\n_(Media tidak bisa dikirim ulang)_"}).catch(()=>{});
-                } else {
-                  await sock.sendMessage(targetJid,{text:notifText+"\n_(Media sudah tidak bisa diunduh)_"}).catch(()=>{});
+              if (buf) {
+                if      (cached.type==="foto")   await sock.sendMessage(targetJid,{image:buf,caption:notifTeks,mimetype:"image/jpeg"}).catch(()=>{});
+                else if (cached.type==="video")  await sock.sendMessage(targetJid,{video:buf,caption:notifTeks,mimetype:"video/mp4"}).catch(()=>{});
+                else if (cached.type==="stiker") {
+                  await sock.sendMessage(targetJid,{sticker:buf}).catch(()=>{});
+                  await sock.sendMessage(targetJid,{text:notifTeks}).catch(()=>{});
                 }
+                else if (cached.type==="audio")  {
+                  await sock.sendMessage(targetJid,{audio:buf,mimetype:"audio/ogg; codecs=opus",ptt:true}).catch(()=>{});
+                  await sock.sendMessage(targetJid,{text:notifTeks}).catch(()=>{});
+                }
+                else await sock.sendMessage(targetJid,{text:notifTeks+"\n_(Media tidak bisa dikirim ulang)_"}).catch(()=>{});
               } else {
-                await sock.sendMessage(targetJid,{text:`${header}\n_(Isi media tidak tertangkap)_`}).catch(()=>{});
+                await sock.sendMessage(targetJid,{text:notifTeks+"\n_(Media sudah expired di server WA)_"}).catch(()=>{});
               }
             } catch(e) {
-              await sock.sendMessage(targetJid,{text:`${header}\n_(Error: ${e.message})_`}).catch(()=>{});
+              await sock.sendMessage(targetJid,{text:`${header}\n_(Error ambil media: ${e.message})_`}).catch(()=>{});
             }
           }
         };
 
-        // Kirim ke pengirim (orang yang hapus) DAN ke admin
-        await kirimNotif(senderJid, notifKePengirim);
-        if (senderJid !== adminJid) {
-          await kirimNotif(adminJid, notifKeAdmin);
+        // Selalu kirim ke admin
+        await kirimNotif(adminJid, headerAdmin);
+
+        // Kirim ke pengirim juga HANYA jika vanssOn aktif
+        if (vanssOn && senderJid !== adminJid) {
+          await kirimNotif(senderJid, headerPengirim);
         }
 
       } catch(_){}
